@@ -15,7 +15,12 @@ public class NeoforgeRegistryService implements RegistryService {
 
     @Override
     public DeferredRegistry.Blocks createBlocks(String ID) {
-        return new NeoforgeDeferredRegistry.Blocks(ID, BuiltInRegistries.BLOCK.key());
+        return new NeoforgeDeferredRegistry.Blocks(ID);
+    }
+
+    @Override
+    public DeferredRegistry.Items createItems(String ID) {
+        return new NeoforgeDeferredRegistry.Items(ID);
     }
 
     @Override

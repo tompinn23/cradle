@@ -1,12 +1,12 @@
 package org.int13h.cradle.registries.management;
 
 
-import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
-import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockBehaviour;
@@ -16,14 +16,15 @@ import org.int13h.cradle.services.ServiceLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
 public class DeferredRegistry<T> {
-    protected final Object2ObjectMap<ResourceLocation, RegistryObject<T>> registry = new Object2ObjectOpenHashMap<>();
+    protected final Map<RegistryHolder<T, ? extends T>, Supplier<? extends T>> entries = new LinkedHashMap<>();
     protected final String ID;
     protected final ResourceKey<? extends Registry<T>> KEY;
 
@@ -55,39 +56,43 @@ public class DeferredRegistry<T> {
         return SERVICE.createBlocks(ID);
     }
 
+    public static DeferredRegistry.Items createItems(final String ID) {
+        return SERVICE.createItems(ID);
+    }
+
     protected DeferredRegistry(String ID, ResourceKey<? extends Registry<T>> KEY) {
         this.ID = ID;
         this.KEY = KEY;
     }
 
-    public RegistrySupplier<T> register(String name, Supplier<T> value) {
-        return register(ResourceLocation.tryBuild(ID, name), value);
+    public <I extends T> RegistryHolder<T, I> register(String name, Supplier<? extends I> value) {
+        return this.internalRegister(name, key -> value.get());
     }
 
-    public RegistrySupplier<T> register(ResourceLocation location, Supplier<T> value) {
-        if(this.frozen)
-            throw new IllegalStateException(String.format("Attempted registry of %s after registry %s has been frozen", location, KEY));
-        if(this.registry.containsKey(location))
-            throw new IllegalStateException(String.format("Attempted double registration of %s in registry", location, KEY));
-        var object = new RegistryObject<>(location, value, this);
-        this.registry.put(location, object);
-        return object;
+    public <I extends T> RegistryHolder<T, I> register(String name, Function<ResourceLocation, ? extends I> value) {
+        return this.internalRegister(name, value);
     }
 
-    public boolean contains(String name) {
-        return contains(ResourceLocation.tryBuild(ID, name));
+    protected <I extends T> RegistryHolder<T, I> internalRegister(String name, Function<ResourceLocation, ? extends I> value) {
+        Objects.requireNonNull(name);
+        Objects.requireNonNull(value);
+
+        final ResourceLocation key = ResourceLocation.tryBuild(ID, name);
+
+        RegistryHolder<T, I> holder = createHolder(this.KEY, key);
+        if(entries.putIfAbsent(holder, () -> value.apply(key)) != null) {
+            throw new IllegalStateException("Duplicate registry "+ name);
+        }
+
+        return holder;
     }
 
-    public boolean contains(ResourceLocation location) {
-        return this.registry.containsKey(location);
+    protected <I extends T> RegistryHolder<T, I> createHolder(ResourceKey<? extends Registry<T>> key, ResourceLocation location) {
+        return RegistryHolder.create(key, location);
     }
 
-    public RegistrySupplier<T> get(ResourceLocation location) {
-        return this.registry.get(location);
-    }
-
-    public void forEach(BiConsumer<ResourceLocation, RegistrySupplier<T>> consumer) {
-        this.registry.forEach(consumer);
+    public void forEach(BiConsumer<? super RegistryHolder<T, ? extends T>, ? super Supplier<? extends T>> consumer) {
+        this.entries.forEach(consumer);
     }
 
     public static class Blocks extends DeferredRegistry<Block> {
@@ -98,24 +103,8 @@ public class DeferredRegistry<T> {
             super(ID, Registries.BLOCK);
         }
 
-        @Override
-        public RegistrySupplier<Block> register(String name, Supplier<Block> value) {
-            if(PLATFORM.getLoader() == PlatformService.Loader.NEOFORGE) {
-                LOG.warn("Using register directly will cause error: BlockBehaviour.properties requires setId() to be called.");
-            }
-            return super.register(name, value);
-        }
-
-        @Override
-        public RegistrySupplier<Block> register(ResourceLocation location, Supplier<Block> value) {
-            if(PLATFORM.getLoader() == PlatformService.Loader.NEOFORGE) {
-                LOG.warn("Using register directly will cause error: BlockBehaviour.properties requires setId() to be called.");
-            }
-            return super.register(location, value);
-        }
-
-        public RegistrySupplier<Block> register(String name, Function<BlockBehaviour.Properties, Block> fac, BlockBehaviour.Properties props) {
-            throw new IllegalStateException("Should've been replaced");
+        public <I extends Block> RegistryHolder<Block, I> register(String name, Function<BlockBehaviour.Properties, ? extends I> fact, BlockBehaviour.Properties props) {
+            return this.internalRegister(name, key -> fact.apply(props.setId(ResourceKey.create(Registries.BLOCK, key))));
         }
 
     }
@@ -128,25 +117,18 @@ public class DeferredRegistry<T> {
             super(ID, Registries.ITEM);
         }
 
-        @Override
-        public RegistrySupplier<Item> register(String name, Supplier<Item> value) {
-            if(PLATFORM.getLoader() == PlatformService.Loader.NEOFORGE) {
-                LOG.warn("Using register directly will cause error: Item.properties requires setId() to be called.");
-            }
-            return super.register(name, value);
+        public <I extends Item> RegistryHolder<Item, I> registerSimple(String name, Function<Item.Properties, ? extends I> fact) {
+            return this.register(name, fact, new Item.Properties());
         }
 
-        @Override
-        public RegistrySupplier<Item> register(ResourceLocation location, Supplier<Item> value) {
-            if(PLATFORM.getLoader() == PlatformService.Loader.NEOFORGE) {
-                LOG.warn("Using register directly will cause error: Item.properties requires setId() to be called.");
-            }
-            return super.register(location, value);
+        public RegistryHolder<Item, BlockItem> registerBlockItem(Holder<Block> holder, Item.Properties properties) {
+            return this.register(holder.unwrapKey().get().location().getPath(), p -> new BlockItem(holder.value(), p), properties);
         }
 
-        public RegistrySupplier<Item> register(String name, Function<Item.Properties, Item> fac, Item.Properties props) {
-            throw new IllegalStateException("Should've been replaced");
+        public <I extends Item> RegistryHolder<Item, I> register(String name, Function<Item.Properties, ? extends I> fact, Item.Properties properties) {
+            return this.internalRegister(name, key -> fact.apply(properties.setId(ResourceKey.create(Registries.ITEM, key))));
         }
+
 
     }
 

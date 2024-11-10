@@ -10,5 +10,7 @@ public interface RegistryService {
 
     DeferredRegistry.Blocks createBlocks(String ID);
 
+    DeferredRegistry.Items createItems(String ID);
+
     void register();
 }

@@ -8,7 +8,7 @@ val parchmentVersion: String by project
 val parchmentMappings: String by project
 
 neoForge {
-    neoFormVersion = "1.20.6-20240627.102356"
+    neoFormVersion = neoVanillaVersion
 
     val at = file("src/main/resources/META-INF/accesstransformer.cfg")
     if(at.exists()) {
@@ -21,6 +21,9 @@ neoForge {
 }
 
 dependencies {
+    compileOnly("org.projectlombok:lombok:1.18.34")
+    annotationProcessor("org.projectlombok:lombok:1.18.34")
+
     compileOnly("org.spongepowered:mixin:0.8.5")
     // fabric and neoforge both bundle mixinextras, so it is safe to use it in common
     compileOnly("io.github.llamalad7:mixinextras-common:0.3.5")

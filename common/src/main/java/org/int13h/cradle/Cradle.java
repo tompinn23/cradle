@@ -1,6 +1,7 @@
 package org.int13h.cradle;
 
 import org.int13h.cradle.registries.Blocks;
+import org.int13h.cradle.registries.Items;
 import org.int13h.cradle.registries.management.DeferredRegistry;
 import org.int13h.cradle.services.PlatformService;
 import org.int13h.cradle.services.ServiceLoader;
@@ -17,8 +18,13 @@ public class Cradle {
 
         LOG.info("Platform: {}", ServiceLoader.get(PlatformService.class).getPlatform());
 
-        DeferredRegistry.register();
 
         Blocks.init();
+        Items.init();
+
+        /** make sure all deferred registries have been classloaded */
+        DeferredRegistry.register();
     }
 }
+
+
